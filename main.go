@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,22 +14,6 @@ import (
 	"github.com/jackc/pgx/v4"
 	"github.com/jasonlvhit/gocron"
 )
-
-// FakeStdio can be used to fake stdin and capture stdout.
-// Between creating a new FakeStdio and calling ReadAndRestore on it,
-// code reading os.Stdin will get the contents of stdinText passed to New.
-// Output to os.Stdout will be captured and returned from ReadAndRestore.
-// FakeStdio is not reusable; don't attempt to use it after calling
-// ReadAndRestore, but it should be safe to create a new FakeStdio.
-type FakeStdio struct {
-	origStdout   *os.File
-	stdoutReader *os.File
-
-	outCh chan []byte
-
-	origStdin   *os.File
-	stdinWriter *os.File
-}
 
 type ethGasStationResponse struct {
 	Fast       float64 `json:"fast"`
@@ -55,111 +37,16 @@ func getAPIKey(conn *pgx.Conn) string {
 		if err := row.Scan(&key); err != nil {
 			log.Fatal(err)
 		}
-		// log.Printf("%s\n", key)
-		// stub - run query here
 	}
 	return key
 }
 
 func insertRows(ctx context.Context, tx pgx.Tx, result *ethGasStationResponse) error {
-	// log.Println("[Cluster] Inserting to ethGasStationData...")
 	sec := time.Now().Unix()
 	if _, err := tx.Exec(ctx,
 		"INSERT INTO ethgasdata (ts, fast, fastest, safelow, average) VALUES ($1, $2, $3, $4, $5)", sec, result.Fast, result.Fastest, result.SafeLow, result.Average); err != nil {
 		return err
 	}
-	return nil
-}
-
-func convertTo64(ar []byte) []float64 {
-	newar := make([]float64, len(ar))
-	var v byte
-	var i int
-	for i, v = range ar {
-		newar[i] = float64(v)
-	}
-	return newar
-}
-
-func float64ToByte(f float64) []byte {
-	var buf bytes.Buffer
-	err := binary.Write(&buf, binary.LittleEndian, f)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return buf.Bytes()
-}
-
-func graphData(result *ethGasStationResponse) error {
-
-	var buf []byte
-
-	res_f64 := float64ToByte(result.Average)
-
-	// Pipe for stdin.
-	//
-	//                 ======
-	//  w ------------->||||------> r
-	// (stdinWriter)   ======      (os.Stdin)
-
-	stdinReader, stdinWriter, err := os.Pipe()
-	if err != nil {
-		return err
-	}
-
-	origStdin := os.Stdin
-	os.Stdin = stdinReader
-
-	_, err = stdinWriter.Write([]byte(buf))
-	if err != nil {
-		stdinWriter.Close()
-		os.Stdin = origStdin
-		return err
-	}
-
-	slice64 := convertTo64(res_f64)
-
-	graph := asciigraph.Plot(slice64, asciigraph.Height(10), asciigraph.Width(40), asciigraph.Caption("Test Average Graph"))
-	fmt.Println(graph)
-
-	/*
-		data := make([]float64, 0, 64)
-
-		realTimeDataBuffer := int(40)
-
-		s := bufio.NewScanner(os.Stdin)
-		s.Split(bufio.ScanWords)
-
-		nextFlushTime := time.Now()
-
-		fps := float64(24)
-
-		flushInterval := time.Duration(float64(time.Second) / fps)
-
-		for s.Scan() {
-			word := s.Text()
-			p, err := strconv.ParseFloat(word, 64)
-			if err != nil {
-				log.Printf("ignore %q: error parsing data", word)
-				continue
-			}
-			data = append(data, p)
-			if realTimeDataBuffer > 0 && len(data) > realTimeDataBuffer {
-				data = data[len(data)-realTimeDataBuffer:]
-			}
-
-			if currentTime := time.Now(); currentTime.After(nextFlushTime) || currentTime.Equal(nextFlushTime) {
-				plot := asciigraph.Plot(data,
-					asciigraph.Height(int(10)),
-					asciigraph.Width(int(40)),
-					asciigraph.Caption("ethGas Average (ms)"))
-				asciigraph.Clear()
-				fmt.Println(plot)
-				nextFlushTime = time.Now().Add(flushInterval)
-			}
-		}
-	*/
-
 	return nil
 }
 
@@ -182,7 +69,6 @@ func queryRows(conn *pgx.Conn, data []float64) (out []float64, e error) {
 
 func GETRequest(key string) (*ethGasStationResponse, error) {
 	slug := "https://ethgasstation.info/json/ethgasAPI.json"
-	// slug = "https://data-api.defipulse.com/api/v1/egs/api/ethgasAPI.json?api-key=" + key
 	resp, err := http.Get(slug)
 	if err != nil {
 		log.Fatal(err)
@@ -201,14 +87,10 @@ func subroutine(conn *pgx.Conn, data []float64) {
 		log.Fatal(err)
 	}
 
-	// graphData(result)
-
 	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		return insertRows(context.Background(), tx, result)
 	})
-	if err == nil {
-		// log.Println("[Cluster] Insertion to ethGasStationData success")
-	} else {
+	if err != nil {
 		log.Fatal("error: ", err)
 	}
 
@@ -269,12 +151,6 @@ func main() {
 	data := make([]float64, 0, 64)
 
 	defer conn.Close(context.Background())
-
-	// for {
-	// time.Sleep(time.Second * 5)
-	// printGraphRT(conn, data)
-	// subroutine(conn, data)
-	// }
 
 	s := gocron.NewScheduler()
 	s.Every(1).Seconds().Do(subroutine, conn, data)
