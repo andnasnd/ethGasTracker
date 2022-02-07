@@ -98,7 +98,7 @@ func subroutine(conn *pgx.Conn, data []float64) {
 }
 
 func connectToCluster() (conn *pgx.Conn, invalidtype error) {
-	connstring := "postgresql://anand:71-856laTUj5TZMe@free-tier4.aws-us-west-2.cockroachlabs.cloud:26257/test?sslmode=verify-full&sslrootcert=$HOME/.postgresql/root.crt&options=--cluster%3Dthorny-jaguar-1926"
+	connstring := "REDACTED"
 
 	config, err := pgx.ParseConfig(os.ExpandEnv(connstring))
 	if err != nil {
