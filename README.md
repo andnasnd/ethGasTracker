@@ -2,7 +2,7 @@
 
 ## Description 
 
-- Built this small tool because I wanted command-line access to Ethereum gas price
+- Built this small tool because I wanted command-line access to Ethereum gas prices
   - Additionally, the DB serves as a source from which further projects can be built upon 
 
 ## Installation
